@@ -1,0 +1,17 @@
+# Web 框架
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+
+# ASR 识别
+funasr>=1.1.0
+
+# 说话人分离
+pyannote.audio>=3.3.0
+
+# 音频处理
+torchaudio>=2.2.0
+pydub>=0.25.1
+
+# 深度学习后端（Apple Silicon 用 MPS，CPU 兜底）
+torch>=2.2.0
