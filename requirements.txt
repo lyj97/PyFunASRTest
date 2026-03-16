@@ -15,3 +15,6 @@ pydub>=0.25.1
 
 # 深度学习后端（Apple Silicon 用 MPS，CPU 兜底）
 torch>=2.2.0
+
+# LLM 分析（直接流式 HTTP，不依赖 openai 包）
+httpx>=0.27.0

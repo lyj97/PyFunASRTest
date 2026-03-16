@@ -38,3 +38,22 @@ MIN_SEGMENT_DURATION: float = 0.3
 
 # 并行 ASR 的最大线程数（None = CPU 核心数）
 ASR_MAX_WORKERS: int | None = None
+
+# ── NVIDIA LLM ────────────────────────────────────
+# 启动前执行：export NVIDIA_API_KEY="nvapi-xxxx"
+NVIDIA_API_KEY: str = os.environ.get("NVIDIA_API_KEY", "")
+
+# NVIDIA 兼容 OpenAI 的接口基础 URL
+NVIDIA_BASE_URL: str = os.environ.get(
+    "NVIDIA_BASE_URL",
+    "https://integrate.api.nvidia.com/v1",
+)
+
+# 使用的模型名称，可通过环境变量覆盖
+NVIDIA_MODEL: str = os.environ.get(
+    "NVIDIA_MODEL",
+    "z-ai/glm4.7",
+)
+
+# 是否启用 LLM 分析（设为 false 可跳过 LLM 阶段，仅做 ASR）
+LLM_ENABLED: bool = os.environ.get("LLM_ENABLED", "true").lower() != "false"
