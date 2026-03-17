@@ -10,163 +10,296 @@
 </head>
 <body>
 <div id="app">
-  <div class="page-wrap">
+  <!-- ── 整体布局：左侧历史 + 右侧主内容 ──── -->
+  <div class="layout-root">
 
-    <!-- ── 页头 ─────────────────────────────────── -->
-    <div class="page-header">
-      <div class="logo">
-        <svg viewBox="0 0 24 24">
-          <path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v7a2 2 0 0 0 4 0V5a2 2 0 0 0-2-2zm-7 8a7 7 0 0 0 14 0h2a9 9 0 0 1-8 8.94V22h-2v-2.06A9 9 0 0 1 3 11H5z"/>
-        </svg>
+    <!-- ── 历史任务侧边栏 ──────────────────── -->
+    <aside class="history-sidebar" :class="{ collapsed: !historyOpen }">
+      <div class="history-header">
+        <span class="history-title" v-if="historyOpen">历史任务</span>
+        <button class="history-toggle" @click="historyOpen = !historyOpen"
+                :title="historyOpen ? '收起' : '展开历史'">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none"
+               stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <path v-if="historyOpen" d="M15 18l-6-6 6-6"/>
+            <path v-else              d="M9 18l6-6-6-6"/>
+          </svg>
+        </button>
       </div>
-      <h1>语音识别 + AI 面试分析</h1>
-      <span class="badge">👥 说话人区分</span>
-    </div>
 
-    <!-- ── 顶部：上传 + 进度（全宽）───────────────── -->
-    <div class="top-section">
-      <div class="card">
-
-        <!-- 拖拽上传区 -->
+      <div v-if="historyOpen" class="history-list">
+        <div v-if="historyTasks.length === 0" class="history-empty">暂无历史任务</div>
         <div
-          class="upload-zone"
-          :class="{ 'drag-over': isDragging }"
-          @dragover.prevent="isDragging = true"
-          @dragleave.prevent="isDragging = false"
-          @drop.prevent="onDrop"
+          v-for="task in historyTasks" :key="task.task_id"
+          class="history-item"
+          :class="{ active: currentTaskId === task.task_id }"
+          @click="openHistoryTask(task)"
         >
-          <input type="file" accept=".wav,.mp3,.m4a,.flac,.ogg,.aac,.wma"
-                 @change="onFileChange" ref="fileInput" />
-          <div class="up-icon">🎵</div>
-          <div class="up-hint"><b>点击选择</b> 或拖拽音频文件到此处</div>
-        </div>
-
-        <!-- 已选文件行 -->
-        <div v-if="selectedFile" class="file-row">
-          <span>📎</span>
-          <span class="fname">{{ selectedFile.name }}</span>
-          <span class="rm" @click="clearFile">✕ 移除</span>
-        </div>
-
-        <!-- 支持格式 -->
-        <div class="chips">
-          <span class="chip" v-for="f in formats" :key="f">{{ f }}</span>
-        </div>
-
-        <!-- 操作行：按钮 + 内联进度条 -->
-        <div class="upload-actions">
-          <button class="btn-primary" :disabled="!selectedFile || loading" @click="doTranscribe">
-            <svg v-if="loading" width="15" height="15" viewBox="0 0 24 24"
-                 fill="none" stroke="currentColor" stroke-width="2.5"
-                 style="animation:spin 1s linear infinite; flex-shrink:0">
-              <circle cx="12" cy="12" r="10" stroke-opacity=".25"/>
-              <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
-            </svg>
-            {{ loading ? stageName : '开始识别' }}
-          </button>
-
-          <!-- 内联进度条（识别中显示） -->
-          <div v-if="loading || (progress > 0 && !llmDone)" class="progress-inline">
-            <div class="progress-header">
-              <span>{{ stageName }}</span>
-              <span v-if="!llmStage">{{ progress }}%</span>
-            </div>
-            <div class="progress-track">
-              <div
-                class="progress-fill"
-                :class="llmStage ? 'llm' : 'asr'"
-                :style="{ width: llmProgressWidth }"
-              ></div>
-            </div>
+          <div class="hi-name" :title="task.filename">{{ task.filename }}</div>
+          <div class="hi-meta">
+            <span class="hi-status" :class="taskStatusClass(task)">{{ taskStatusLabel(task) }}</span>
+            <span class="hi-time">{{ formatTaskTime(task.created_at) }}</span>
+          </div>
+          <div v-if="task.status === 'asr_running' || task.status === 'llm_running' || task.status === 'pending'"
+               class="hi-progress">
+            <div class="hi-progress-fill" :style="{ width: (task.progress || 0) + '%' }"></div>
           </div>
         </div>
-
-        <!-- LLM 阶段状态横幅 -->
-        <div v-if="llmStage === 'analyzing'" class="llm-banner analyzing">
-          🤖 AI 面试分析中…
-        </div>
-
-        <!-- 错误提示 -->
-        <div v-if="errorMsg" class="error-box">⚠️ {{ errorMsg }}</div>
-
       </div>
-    </div>
+    </aside>
 
-    <!-- ── 下方：左右双栏结果区 ─────────────────── -->
-    <div v-if="showPanels" class="result-panels">
+    <!-- ── 主内容区 ───────────────────────── -->
+    <div class="page-wrap">
 
-      <!-- ── 左栏：ASR 转写对话 ───────────────────── -->
-      <div class="panel">
-        <div class="panel-header">
-          <span class="panel-title">转写对话</span>
-          <span v-if="speakerCount > 0" class="panel-badge blue">{{ speakerCount }} 位说话人</span>
-          <button v-if="result" class="panel-action" @click="copyAll">
-            {{ copied ? '✅ 已复制' : '复制全文' }}
-          </button>
+      <!-- ── 页头 ───────────────────────────── -->
+      <div class="page-header">
+        <div class="logo">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm0 2a2 2 0 0 0-2 2v7a2 2 0 0 0 4 0V5a2 2 0 0 0-2-2zm-7 8a7 7 0 0 0 14 0h2a9 9 0 0 1-8 8.94V22h-2v-2.06A9 9 0 0 1 3 11H5z"/>
+          </svg>
         </div>
+        <h1>语音识别 + AI 面试分析</h1>
+        <span class="badge">👥 说话人区分</span>
+      </div>
 
-        <div class="panel-body">
-          <!-- 多说话人气泡 -->
-          <div v-if="result && result.segments && result.segments.length > 0" class="bubbles">
-            <div
-              v-for="(seg, i) in result.segments"
-              :key="i"
-              class="bubble-row"
-              :class="[`spk-${seg.speaker_id % 8}`, seg.speaker_id % 2 === 1 ? 'right' : '']"
-            >
-              <div class="avatar">{{ speakerInitial(seg.speaker_id) }}</div>
-              <div class="bubble-content">
-                <div class="bubble-name">{{ seg.speaker }}</div>
-                <div class="bubble">{{ seg.text }}</div>
-                <div class="bubble-time">{{ formatTime(seg.start_ms) }} – {{ formatTime(seg.end_ms) }}</div>
+      <!-- ── 上传卡片 ──────────────────────── -->
+      <div class="top-section">
+        <div class="card">
+
+          <div
+            class="upload-zone" :class="{ 'drag-over': isDragging }"
+            @dragover.prevent="isDragging = true"
+            @dragleave.prevent="isDragging = false"
+            @drop.prevent="onDrop"
+          >
+            <input type="file" accept=".wav,.mp3,.m4a,.flac,.ogg,.aac,.wma"
+                   @change="onFileChange" ref="fileInput" />
+            <div class="up-icon">🎵</div>
+            <div class="up-hint"><b>点击选择</b> 或拖拽音频文件到此处</div>
+          </div>
+
+          <div v-if="selectedFile" class="file-row">
+            <span>📎</span>
+            <span class="fname">{{ selectedFile.name }}</span>
+            <span class="rm" @click="clearFile">✕ 移除</span>
+          </div>
+
+          <div class="chips">
+            <span class="chip" v-for="f in formats" :key="f">{{ f }}</span>
+          </div>
+
+          <div class="upload-actions">
+            <button class="btn-primary" :disabled="!selectedFile || loading" @click="doTranscribe">
+              <svg v-if="loading && !llmTriggered" width="15" height="15" viewBox="0 0 24 24"
+                   fill="none" stroke="currentColor" stroke-width="2.5"
+                   style="animation:spin 1s linear infinite; flex-shrink:0">
+                <circle cx="12" cy="12" r="10" stroke-opacity=".25"/>
+                <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
+              </svg>
+              {{ loading && !llmTriggered ? stageName : '开始识别' }}
+            </button>
+
+            <div v-if="(loading && !llmTriggered) || (progress > 0 && progress < 100)" class="progress-inline">
+              <div class="progress-header">
+                <span>{{ stageName }}</span>
+                <span>{{ progress }}%</span>
+              </div>
+              <div class="progress-track">
+                <div class="progress-fill asr" :style="{ width: progress + '%' }"></div>
               </div>
             </div>
           </div>
 
-          <!-- 单人纯文本 -->
-          <p v-else-if="result && result.text"
-             style="font-size:.9rem;line-height:1.75;color:var(--text);">
-            {{ result.text }}
-          </p>
+          <div v-if="errorMsg" class="error-box">⚠️ {{ errorMsg }}</div>
+        </div>
+      </div>
 
-          <!-- 占位（ASR 未完成时） -->
-          <div v-else class="llm-placeholder">
-            <div class="ph-icon">💬</div>
-            <span>识别完成后，对话内容将在此显示</span>
+      <!-- ── 说话人确认编辑器（ASR完成后、LLM触发前）─ -->
+      <div v-if="showSpeakerEditor" class="card spk-editor-card">
+        <div class="spk-editor-header">
+          <span class="spk-editor-title">🎙️ 确认说话人角色</span>
+          <span class="spk-editor-hint">
+            说话人由 ASR 自动区分，可能存在误差，请确认后再分析
+          </span>
+        </div>
+
+        <!-- 说话人行列表 -->
+        <div class="spk-rows">
+          <div v-for="spk in activeSpeakers" :key="spk.id" class="spk-row">
+            <!-- 说话人头像 + 名称 -->
+            <span class="spk-row-avatar" :class="`spk-${spk.id % 8}`">
+              {{ speakerInitial(spk.id) }}
+            </span>
+            <span class="spk-row-name">{{ spk.name }}</span>
+
+            <!-- 角色选择 -->
+            <select class="spk-select"
+                    :value="speakerRoles[spk.id] || 'unknown'"
+                    @change="setSpeakerRole(spk.id, $event.target.value)">
+              <option value="unknown">未知（AI 自行判断）</option>
+              <option value="interviewer">面试官</option>
+              <option value="candidate">候选人</option>
+            </select>
+
+            <!-- 合并选择（合并到其他说话人） -->
+            <select class="spk-select spk-merge-sel"
+                    :value="speakerMerges[spk.id] !== undefined ? speakerMerges[spk.id] : ''"
+                    @change="setSpeakerMerge(spk.id, $event.target.value)">
+              <option value="">不合并</option>
+              <option
+                v-for="other in activeSpeakers.filter(s => s.id !== spk.id)"
+                :key="other.id" :value="other.id"
+              >合并到 {{ other.name }}</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 底部操作 -->
+        <div class="spk-editor-footer">
+          <span class="spk-tip">💡 也可点击对话气泡头像单独指定某条语句的说话人</span>
+          <div class="spk-actions">
+            <button class="btn-secondary" @click="doAnalyze(true)">跳过，AI 自行判断</button>
+            <button class="btn-primary" @click="doAnalyze(false)">
+              {{ userCorrected ? '✅ 确认并开始 AI 分析' : '开始 AI 分析' }}
+            </button>
           </div>
         </div>
       </div>
 
-      <!-- ── 右栏：AI 面试分析 ──────────────────── -->
-      <div class="panel">
-        <div class="panel-header">
-          <div class="llm-panel-icon">🤖</div>
-          <span class="panel-title" style="margin-left:4px;">AI 面试分析</span>
-          <span v-if="llmDone" class="panel-badge green">✅ 分析完成</span>
-          <button v-if="llmDone" class="panel-action" @click="copyAnalysis">
-            {{ copiedAnalysis ? '✅ 已复制' : '复制报告' }}
-          </button>
-        </div>
-
-        <div class="panel-body">
-          <!-- LLM Markdown 流式渲染 -->
-          <div v-if="llmChunks"
-               class="llm-markdown"
-               :class="{ streaming: !llmDone }"
-               v-html="renderedMarkdown">
-          </div>
-
-          <!-- 占位（LLM 未开始时） -->
-          <div v-else class="llm-placeholder">
-            <div class="ph-icon">🤖</div>
-            <span>转写完成后，AI 将自动判断场景并生成分析报告</span>
-          </div>
+      <!-- LLM 进行中横幅（触发后显示） -->
+      <div v-if="llmTriggered && (llmStage || loading)" class="llm-running-banner">
+        <svg v-if="loading" width="14" height="14" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor" stroke-width="2.5"
+             style="animation:spin 1s linear infinite; flex-shrink:0">
+          <circle cx="12" cy="12" r="10" stroke-opacity=".25"/>
+          <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
+        </svg>
+        🤖 AI 面试分析中…
+        <div class="llm-progress-track">
+          <div class="llm-progress-fill"></div>
         </div>
       </div>
 
-    </div><!-- /result-panels -->
+      <!-- ── 结果双栏区域 ──────────────────── -->
+      <div v-if="showPanels" class="result-panels">
 
-  </div><!-- /page-wrap -->
+        <!-- ── 左栏：ASR 转写对话 ────────────── -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">转写对话</span>
+            <span v-if="speakerCount > 0" class="panel-badge blue">{{ speakerCount }} 位说话人</span>
+            <button v-if="result" class="panel-action" @click="copyAll">
+              {{ copied ? '✅ 已复制' : '复制全文' }}
+            </button>
+          </div>
+
+          <div class="panel-body">
+            <!-- 多说话人气泡（使用 effectiveSegments，反映实时更正） -->
+            <div v-if="effectiveSegments.length > 0" class="bubbles">
+              <div
+                v-for="(seg, i) in effectiveSegments" :key="i"
+                class="bubble-row"
+                :class="[
+                  `spk-${seg.effectiveId % 8}`,
+                  getEffectiveRole(seg.effectiveId) === 'candidate' ? 'right'
+                    : getEffectiveRole(seg.effectiveId) === 'interviewer' ? ''
+                    : seg.effectiveId % 2 === 1 ? 'right' : ''
+                ]"
+              >
+                <!-- 头像：可点击弹出说话人覆盖 popup -->
+                <div
+                  class="avatar"
+                  :class="{ 'avatar-editable': showSpeakerEditor }"
+                  @click.stop="showSpeakerEditor && toggleSegEdit(i)"
+                >
+                  {{ speakerInitial(seg.effectiveId) }}
+
+                  <!-- 单条语句说话人覆盖 popup -->
+                  <div v-if="editingSegIndex === i" class="seg-edit-popup" @click.stop>
+                    <div class="seg-edit-title">指定此条语句的说话人</div>
+                    <div
+                      v-for="spk in activeSpeakers" :key="spk.id"
+                      class="seg-edit-opt"
+                      :class="{ selected: seg.effectiveId === spk.id }"
+                      @click="setSegmentOverride(i, spk.id)"
+                    >
+                      <span class="seg-edit-badge" :class="`spk-${spk.id % 8}`">
+                        {{ speakerInitial(spk.id) }}
+                      </span>
+                      {{ getEffectiveName(spk.id) }}
+                      <span v-if="seg.effectiveId === spk.id" class="seg-edit-check">✓</span>
+                    </div>
+                    <!-- 恢复原始（有单条覆盖时显示） -->
+                    <div
+                      v-if="segmentOverrides[i] !== undefined"
+                      class="seg-edit-opt seg-edit-reset"
+                      @click="clearSegmentOverride(i)"
+                    >
+                      ↩ 恢复原始说话人
+                    </div>
+                  </div>
+                </div>
+
+                <div class="bubble-content">
+                  <!-- 显示有效说话人名称（实时响应更正） -->
+                  <div class="bubble-name">
+                    {{ seg.displayName }}
+                    <span v-if="segmentOverrides[i] !== undefined" class="override-tag">已修改</span>
+                  </div>
+                  <div class="bubble">{{ seg.text }}</div>
+                  <div class="bubble-time">{{ formatTime(seg.start_ms) }} – {{ formatTime(seg.end_ms) }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 单人纯文本 -->
+            <p v-else-if="result && result.text"
+               style="font-size:.9rem;line-height:1.75;color:var(--text);">
+              {{ result.text }}
+            </p>
+
+            <!-- 占位 -->
+            <div v-else class="llm-placeholder">
+              <div class="ph-icon">💬</div>
+              <span>识别完成后，对话内容将在此显示</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── 右栏：AI 面试分析 ─────────────── -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="llm-panel-icon">🤖</div>
+            <span class="panel-title" style="margin-left:4px;">AI 面试分析</span>
+            <span v-if="llmDone" class="panel-badge green">✅ 分析完成</span>
+            <button v-if="llmDone" class="panel-action" @click="copyAnalysis">
+              {{ copiedAnalysis ? '✅ 已复制' : '复制报告' }}
+            </button>
+          </div>
+
+          <div class="panel-body">
+            <div v-if="llmChunks"
+                 class="llm-markdown"
+                 :class="{ streaming: !llmDone }"
+                 v-html="renderedMarkdown">
+            </div>
+            <!-- 等待触发占位 -->
+            <div v-else-if="!llmTriggered" class="llm-placeholder">
+              <div class="ph-icon">🤖</div>
+              <span>请在左侧确认说话人后，点击「开始 AI 分析」</span>
+            </div>
+            <!-- 分析进行中占位 -->
+            <div v-else class="llm-placeholder">
+              <div class="ph-icon" style="animation:blink 1s step-start infinite">🤖</div>
+              <span>AI 正在分析中…</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /result-panels -->
+
+    </div><!-- /page-wrap -->
+  </div><!-- /layout-root -->
 </div><!-- /#app -->
 
 <script src="/static/js/app.js"></script>

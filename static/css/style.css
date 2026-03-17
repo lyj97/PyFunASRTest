@@ -2,21 +2,23 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:        #f5f5f7;
-  --card:      #ffffff;
-  --border:    #e5e5ea;
-  --text:      #1c1c1e;
-  --sub:       #8e8e93;
-  --accent:    #007aff;
-  --accent-bg: #e8f0fe;
-  --green:     #34c759;
-  --green-bg:  #e8f8ec;
-  --orange:    #ff9500;
-  --orange-bg: #fff4e0;
-  --radius:    14px;
-  --shadow:    0 2px 16px rgba(0,0,0,.07);
+  --bg:            #f5f5f7;
+  --card:          #ffffff;
+  --border:        #e5e5ea;
+  --text:          #1c1c1e;
+  --sub:           #8e8e93;
+  --accent:        #007aff;
+  --accent-bg:     #e8f0fe;
+  --green:         #34c759;
+  --green-bg:      #e8f8ec;
+  --orange:        #ff9500;
+  --orange-bg:     #fff4e0;
+  --radius:        14px;
+  --shadow:        0 2px 16px rgba(0,0,0,.07);
+  --sidebar-w:     240px;   /* 历史侧边栏展开宽度 */
+  --sidebar-cw:    44px;    /* 侧边栏折叠宽度 */
   /* 左右栏各自可滚动的最大高度（视口减去顶部固定区域高度的估算） */
-  --panel-max-h: calc(100vh - 280px);
+  --panel-max-h:   calc(100vh - 280px);
 }
 
 body {
@@ -26,10 +28,148 @@ body {
   color: var(--text);
 }
 
-/* ── 页面整体容器 ──────────────────────────────── */
+/* ── 整体布局（侧边栏 + 主内容）────────────────── */
+.layout-root {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ── 历史任务侧边栏 ──────────────────────────── */
+.history-sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: width .25s ease;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+.history-sidebar.collapsed {
+  width: var(--sidebar-cw);
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 12px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.history-title {
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--sub);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.history-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--sub);
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: background .15s;
+}
+.history-toggle:hover { background: var(--bg); color: var(--text); }
+
+/* 折叠状态下 header 居中放 toggle 按钮 */
+.history-sidebar.collapsed .history-header {
+  justify-content: center;
+  padding: 16px 0 12px;
+}
+
+/* 任务列表滚动区 */
+.history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 6px;
+}
+.history-list::-webkit-scrollbar { width: 3px; }
+.history-list::-webkit-scrollbar-track { background: transparent; }
+.history-list::-webkit-scrollbar-thumb { background: #d1d1d6; border-radius: 99px; }
+
+.history-empty {
+  text-align: center;
+  color: var(--sub);
+  font-size: .78rem;
+  padding: 24px 12px;
+}
+
+/* 单条任务 */
+.history-item {
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .15s;
+  margin-bottom: 2px;
+}
+.history-item:hover    { background: var(--bg); }
+.history-item.active   { background: var(--accent-bg); }
+
+.hi-name {
+  font-size: .8rem;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.hi-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.hi-status {
+  font-size: .68rem;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.ts-done    { background: var(--green-bg);  color: #219150; }
+.ts-error   { background: #fff2f2;          color: #c0392b; }
+.ts-running { background: var(--accent-bg); color: var(--accent); }
+
+.hi-time {
+  font-size: .65rem;
+  color: var(--sub);
+  white-space: nowrap;
+}
+
+/* 任务进行中的细进度条 */
+.hi-progress {
+  margin-top: 5px;
+  height: 3px;
+  background: #e5e5ea;
+  border-radius: 99px;
+  overflow: hidden;
+}
+.hi-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 99px;
+  transition: width .4s ease;
+}
+
+/* ── 主内容区 ────────────────────────────────── */
 .page-wrap {
-  max-width: 1280px;
-  margin: 0 auto;
+  flex: 1;
+  min-width: 0;
   padding: 40px 24px 60px;
 }
 
@@ -311,6 +451,190 @@ body {
   border-radius: 10px; color: var(--sub); font-size: .88rem;
 }
 
+/* ── 次要按钮 ─────────────────────────────────── */
+.btn-secondary {
+  padding: 9px 16px; white-space: nowrap;
+  border: 1.5px solid var(--border); border-radius: 10px;
+  background: var(--card); color: var(--text);
+  font-size: .88rem; font-weight: 500; cursor: pointer;
+  transition: background .15s, border-color .15s;
+  flex-shrink: 0;
+}
+.btn-secondary:hover { background: var(--bg); border-color: var(--sub); }
+
+/* ── 说话人确认编辑器卡片 ──────────────────────── */
+.spk-editor-card {
+  margin-bottom: 16px;
+  padding: 18px 20px;
+  border-left: 3px solid var(--accent);
+}
+
+.spk-editor-header {
+  display: flex; align-items: baseline; gap: 10px;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.spk-editor-title {
+  font-size: .9rem; font-weight: 600; color: var(--text);
+  white-space: nowrap;
+}
+.spk-editor-hint {
+  font-size: .78rem; color: var(--sub);
+}
+
+/* 说话人行列表 */
+.spk-rows {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-bottom: 14px;
+}
+.spk-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg); border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+/* 说话人行头像（复用 spk-N 配色） */
+.spk-row-avatar {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .62rem; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+.spk-0 .spk-row-avatar, .spk-row-avatar.spk-0 { background: #4a90d9; }
+.spk-1 .spk-row-avatar, .spk-row-avatar.spk-1 { background: #e06c75; }
+.spk-2 .spk-row-avatar, .spk-row-avatar.spk-2 { background: #27ae60; }
+.spk-3 .spk-row-avatar, .spk-row-avatar.spk-3 { background: #e6a817; }
+.spk-4 .spk-row-avatar, .spk-row-avatar.spk-4 { background: #8e44ad; }
+.spk-5 .spk-row-avatar, .spk-row-avatar.spk-5 { background: #16a085; }
+.spk-6 .spk-row-avatar, .spk-row-avatar.spk-6 { background: #c0392b; }
+.spk-7 .spk-row-avatar, .spk-row-avatar.spk-7 { background: #2980b9; }
+
+.spk-row-name {
+  font-size: .82rem; font-weight: 500; color: var(--text);
+  min-width: 60px;
+}
+
+/* 角色/合并下拉框 */
+.spk-select {
+  padding: 5px 8px; font-size: .8rem;
+  border: 1px solid var(--border); border-radius: 7px;
+  background: var(--card); color: var(--text);
+  cursor: pointer; outline: none;
+}
+.spk-select:focus { border-color: var(--accent); }
+.spk-merge-sel { color: var(--sub); }
+
+/* 底部 */
+.spk-editor-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.spk-tip {
+  font-size: .76rem; color: var(--sub);
+}
+.spk-actions {
+  display: flex; gap: 8px; flex-shrink: 0;
+}
+
+/* ── 历史任务「待分析」状态标签 ─────────────────── */
+.ts-asr-done { background: var(--orange-bg); color: var(--orange); }
+
+/* ── LLM 进行中横幅 ────────────────────────────── */
+.llm-running-banner {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 16px; padding: 10px 16px;
+  background: var(--green-bg); border: 1px solid #b8ecc7;
+  border-radius: 10px; font-size: .86rem; color: #219150;
+}
+.llm-progress-track {
+  flex: 1; height: 4px; background: #c8f0d5;
+  border-radius: 99px; overflow: hidden; margin-left: 4px;
+}
+.llm-progress-fill {
+  height: 100%; width: 60%; background: var(--green);
+  border-radius: 99px;
+  animation: llmSweep 2s ease-in-out infinite alternate;
+}
+@keyframes llmSweep {
+  from { margin-left: 0;   width: 30%; }
+  to   { margin-left: 70%; width: 30%; }
+}
+
+/* ── 头像可点击态 ───────────────────────────────── */
+.avatar {
+  position: relative; /* 为 popup 提供定位基准 */
+}
+.avatar.avatar-editable {
+  cursor: pointer;
+  transition: box-shadow .15s, transform .1s;
+}
+.avatar.avatar-editable:hover {
+  box-shadow: 0 0 0 2px var(--accent);
+  transform: scale(1.08);
+}
+
+/* ── 单条语句说话人覆盖 popup ────────────────────── */
+.seg-edit-popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 200;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.13);
+  min-width: 160px;
+  padding: 6px 0;
+  animation: fadeUp .15s ease;
+}
+/* 右侧气泡的 popup 靠右对齐 */
+.bubble-row.right .seg-edit-popup {
+  left: auto;
+  right: 0;
+}
+
+.seg-edit-title {
+  font-size: .68rem; color: var(--sub); font-weight: 600;
+  padding: 4px 12px 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.seg-edit-opt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px;
+  font-size: .82rem; color: var(--text);
+  cursor: pointer; transition: background .12s;
+  white-space: nowrap;
+}
+.seg-edit-opt:hover   { background: var(--bg); }
+.seg-edit-opt.selected { background: var(--accent-bg); color: var(--accent); }
+
+.seg-edit-badge {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .58rem; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+
+.seg-edit-check {
+  margin-left: auto; color: var(--accent); font-weight: 700;
+}
+
+.seg-edit-reset {
+  color: var(--sub); border-top: 1px solid var(--border); margin-top: 4px;
+}
+.seg-edit-reset:hover { color: #c0392b; background: #fff2f2; }
+
+/* ── 「已修改」标签 ─────────────────────────────── */
+.override-tag {
+  font-size: .6rem; color: var(--accent);
+  background: var(--accent-bg); border-radius: 4px;
+  padding: 1px 5px; margin-left: 4px; font-weight: 600;
+}
+
 /* ── 动画 ──────────────────────────────────────── */
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(6px); }
@@ -328,6 +652,17 @@ body {
   }
   .panel {
     max-height: 60vh;
+  }
+  /* 小屏默认折叠侧边栏 */
+  .history-sidebar {
+    width: var(--sidebar-cw);
+  }
+  .history-sidebar:not(.collapsed) {
+    width: var(--sidebar-w);
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 100;
+    box-shadow: 2px 0 16px rgba(0,0,0,.12);
   }
 }
 

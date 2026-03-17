@@ -7,7 +7,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from funasr import AutoModel
 
-from app.config import HF_TOKEN, DEVICE
+from app.config import HF_TOKEN, DEVICE, TASK_DB_PATH, TASK_AUDIO_DIR, TASK_TTL_DAYS
+import app.database as db
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ def _load_pyannote() -> object:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    FastAPI 生命周期：启动时并行预加载两套模型，退出时释放。
+    FastAPI 生命周期：启动时并行预加载两套模型、初始化数据库；退出时释放。
 
     两套模型加载彼此独立，使用 asyncio.to_thread 并发执行，
     缩短冷启动时间。
@@ -61,6 +62,12 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(
             "未设置 HF_TOKEN 环境变量，请先执行：export HF_TOKEN='hf_xxxx'"
         )
+
+    # ── 初始化任务数据库 ──────────────────────────
+    db.configure(TASK_DB_PATH, TASK_AUDIO_DIR, TASK_TTL_DAYS)
+    await asyncio.to_thread(db.init_db)
+    # 启动时清理超期任务（非阻塞）
+    await asyncio.to_thread(db.cleanup_expired_tasks)
 
     logger.info("并行加载两套模型...")
     # 两个加载任务并发执行，谁先完成谁先返回

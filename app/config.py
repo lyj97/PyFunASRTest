@@ -3,6 +3,7 @@
 """
 import os
 import logging
+from pathlib import Path
 
 # ── 日志 ──────────────────────────────────────────
 logging.basicConfig(
@@ -57,3 +58,13 @@ NVIDIA_MODEL: str = os.environ.get(
 
 # 是否启用 LLM 分析（设为 false 可跳过 LLM 阶段，仅做 ASR）
 LLM_ENABLED: bool = os.environ.get("LLM_ENABLED", "true").lower() != "false"
+
+# ── 任务持久化 ─────────────────────────────────────
+# 任务数据库路径（可通过环境变量覆盖）
+TASK_DB_PATH: Path = Path(os.environ.get("TASK_DB_PATH", "tasks.db"))
+
+# 音频文件存储目录（任务完成前不删除，TTL 后自动清理）
+TASK_AUDIO_DIR: Path = Path(os.environ.get("TASK_AUDIO_DIR", "task_audio"))
+
+# 音频文件保留天数（默认 7 天）
+TASK_TTL_DAYS: int = int(os.environ.get("TASK_TTL_DAYS", "7"))
