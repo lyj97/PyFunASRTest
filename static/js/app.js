@@ -32,7 +32,8 @@ createApp({
     const llmTriggered  = ref(false);   // ASR 完成后是否已手动触发 LLM
 
     // ── 当前任务 ─────────────────────────────────────
-    const currentTaskId = ref('');
+    const currentTaskId  = ref('');
+    let   _streamAbortCtrl = null;   // 当前 SSE 连接的 AbortController
 
     // ── 历史任务列表 ─────────────────────────────────
     const historyTasks = ref([]);
@@ -291,16 +292,33 @@ createApp({
 
     // ── 订阅 SSE 流 ──────────────────────────────────
 
+    /** 取消当前活跃的 SSE 连接（若存在），同时清除 loading 状态。 */
+    function _cancelStream() {
+      if (_streamAbortCtrl) {
+        try { _streamAbortCtrl.abort(); } catch {}
+        _streamAbortCtrl = null;
+      }
+      // 无论是否有活跃连接，都重置 loading——
+      // 切换任务时必须保证 loading 是干净的初始状态
+      loading.value = false;
+    }
+
     async function _subscribeStream(taskId) {
+      // 先中止旧连接，再建立新连接
+      _cancelStream();
+
       currentTaskId.value = taskId;
-      // 重连前重置 LLM 显示（服务端会推完整快照）
       llmChunks.value = '';
       llmDone.value   = false;
       llmStage.value  = '';
       loading.value   = true;
 
+      // 每次连接使用独立的 AbortController
+      const ctrl = new AbortController();
+      _streamAbortCtrl = ctrl;
+
       try {
-        const res = await fetch(`/api/tasks/${taskId}/stream`);
+        const res = await fetch(`/api/tasks/${taskId}/stream`, { signal: ctrl.signal });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           throw new Error(err.detail || `HTTP ${res.status}`);
@@ -323,9 +341,16 @@ createApp({
           }
         }
       } catch (e) {
-        errorMsg.value = e.message || '网络请求失败，请检查服务是否正常运行';
+        // AbortError 是主动切换任务触发的，不显示错误
+        if (e.name !== 'AbortError') {
+          errorMsg.value = e.message || '网络请求失败，请检查服务是否正常运行';
+        }
       } finally {
-        loading.value = false;
+        // 仅当本次连接仍是"当前连接"时才重置 loading
+        if (_streamAbortCtrl === ctrl) {
+          _streamAbortCtrl = null;
+          loading.value = false;
+        }
         _loadHistory();
       }
     }
@@ -418,7 +443,8 @@ createApp({
     }
 
     async function openHistoryTask(task) {
-      if (loading.value) return;
+      // 不再用 loading 守卫——先取消当前 SSE 再切换
+      _cancelStream();
       _resetResults();
       selectedFile.value = null;
       if (fileInput.value) fileInput.value.value = '';
