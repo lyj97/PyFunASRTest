@@ -1,19 +1,18 @@
 """
-FastAPI 路由（任务持久化 + 说话人更正版）：
+FastAPI 路由（全自动流水线 + 说话人更正重触发版）：
 
-  POST /api/tasks                    — 上传音频，创建任务，启动 ASR
+  POST /api/tasks                    — 上传音频，创建任务，启动 ASR → 自动接续 LLM
   GET  /api/tasks                    — 历史任务列表
   GET  /api/tasks/{task_id}          — 查询单个任务（含完整结果）
   GET  /api/tasks/{task_id}/stream   — SSE 订阅任务进度（支持断线重连）
-  POST /api/tasks/{task_id}/analyze  — ASR 完成后，携带说话人更正触发 LLM 分析
+  POST /api/tasks/{task_id}/analyze  — 携带说话人更正重新触发 LLM 分析（幂等）
   GET  /api/health                   — 服务健康检查
 
 流程：
-  1. POST /tasks      → 创建任务，启动 ASR Worker（只做 ASR）
-  2. 订阅 /stream     → 接收 ASR 进度和结果，ASR 完成后 SSE 关闭
-  3. 前端展示转写对话，用户可编辑说话人角色/合并/单条覆盖
-  4. POST /analyze    → 保存说话人更正，启动 LLM Worker
-  5. 再次订阅 /stream → 接收 LLM 分析流，完成后关闭
+  1. POST /tasks      → 创建任务，启动 ASR Worker
+  2. ASR 完成后       → 自动触发 LLM Worker（无需前端干预）
+  3. 订阅 /stream     → 同时接收 ASR 进度/结果 和 LLM 流式内容
+  4. 用户可随时修改说话人，POST /analyze 重新触发 LLM（清空旧结果）
 """
 import asyncio
 import json
@@ -51,26 +50,44 @@ _live_queues: dict[str, queue.SimpleQueue] = {}
 # ── ASR Worker ────────────────────────────────────
 
 def _run_asr_worker(task_id: str, audio_path: str, suffix: str,
-                    live_q: queue.SimpleQueue) -> None:
+                    live_q: queue.SimpleQueue,
+                    loop: asyncio.AbstractEventLoop) -> None:
     """
-    只做 ASR 识别：进度写库 + 推送实时队列。
-    完成后状态置为 asr_done，等待前端触发 /analyze。
+    ASR 识别：进度写库 + 推送实时队列。
+    完成后自动在同一 live_q 上接续启动 LLM Worker，无需前端手动触发。
     """
+    asr_ok = False
     try:
         def _progress_cb(pct: int):
             db.update_progress(task_id, pct)
             live_q.put(("progress", pct))
 
         result = transcriber.run(audio_path, suffix, progress_cb=_progress_cb)
-        db.update_asr_result(task_id, result)   # status → asr_done
+        db.update_asr_result(task_id, result)   # status → asr_done（瞬态）
         live_q.put(("result", result))
+        asr_ok = True
     except Exception as e:
         logger.exception("ASR 识别失败 task=%s", task_id)
         db.update_task_error(task_id, str(e))
         live_q.put(("error", str(e)))
     finally:
+        if not asr_ok:
+            # ASR 失败，终止整个流水线
+            live_q.put(("__done__", None))
+            _live_queues.pop(task_id, None)
+
+    if not asr_ok:
+        return
+
+    # ASR 成功 → 同一 live_q 上自动接续 LLM（不中断 SSE 连接）
+    if not LLM_ENABLED:
+        # LLM 未启用，直接关闭流
         live_q.put(("__done__", None))
         _live_queues.pop(task_id, None)
+        return
+
+    logger.info("ASR 完成，自动接续 LLM task=%s", task_id)
+    _run_llm_worker(task_id, corrections={}, live_q=live_q)
 
 
 # ── LLM Worker ────────────────────────────────────
@@ -152,7 +169,7 @@ async def create_task(file: UploadFile = File(...)):
     _live_queues[task_id] = live_q
 
     loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, _run_asr_worker, task_id, audio_path, suffix, live_q)
+    loop.run_in_executor(None, _run_asr_worker, task_id, audio_path, suffix, live_q, loop)
 
     logger.info("创建任务 task_id=%s file=%s", task_id, file.filename)
     return {"task_id": task_id, "filename": file.filename, "status": "pending"}
@@ -164,41 +181,46 @@ async def analyze_task(
     corrections: dict = Body(default={}),
 ):
     """
-    ASR 完成后触发 LLM 分析（可携带说话人更正）。
+    用户修改说话人后重新触发 LLM 分析（幂等，任意时刻可调用）。
+
+    - 若当前有 LLM Worker 在跑，先通过替换队列使其孤立（旧队列自行退出）
+    - 清空旧 llm_chunks，重新开始分析
+    - 前端调用后重新订阅 /stream 即可接收新结果
 
     Body（可选）：
     {
       "speaker_roles":      { "0": "interviewer", "1": "candidate" },
-      "speaker_merges":     { "2": 1 },           // 说话人2 合并到说话人1
-      "segment_overrides":  { "5": 0 },            // 第5条语句指定给说话人0
+      "speaker_merges":     { "2": 1 },
+      "segment_overrides":  { "5": 0 },
       "user_corrected":     true
     }
     """
     task = db.get_task(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="任务不存在")
-    if task["status"] not in ("asr_done", "done", "error"):
+    # 仅 ASR 完成后才允许（含已完成/出错的任务，支持重分析）
+    if task["status"] not in ("asr_done", "llm_running", "done", "error"):
         raise HTTPException(status_code=409, detail=f"ASR 尚未完成（当前状态：{task['status']}）")
     if not task["asr_result"]:
         raise HTTPException(status_code=409, detail="ASR 结果为空，无法分析")
     if not LLM_ENABLED:
         raise HTTPException(status_code=503, detail="LLM_ENABLED=false，服务未启用 LLM")
 
-    # 保存用户更正（有则覆盖）
+    # 保存用户更正（有则覆盖，无则保持旧值）
     if corrections:
         db.save_speaker_corrections(task_id, corrections)
 
-    # 重置 LLM 状态，重新分析
-    db.update_status(task_id, "llm_running")
+    # 重置 LLM 输出，状态切换为 llm_running
+    db.reset_llm_for_rerun(task_id)
 
-    # 创建新的实时队列，注册后再启动 Worker（避免 SSE 先连上时找不到队列）
+    # 创建新队列（旧 Worker 若还在跑，写入孤立队列后自行退出，不影响新流）
     live_q: queue.SimpleQueue = queue.SimpleQueue()
     _live_queues[task_id] = live_q
 
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _run_llm_worker, task_id, corrections, live_q)
 
-    logger.info("启动 LLM 分析 task_id=%s user_corrected=%s", task_id, bool(corrections))
+    logger.info("重触发 LLM 分析 task_id=%s user_corrected=%s", task_id, bool(corrections))
     return {"task_id": task_id, "status": "llm_running"}
 
 
@@ -228,7 +250,7 @@ async def task_stream(task_id: str):
             yield _sse({"error": task["error_msg"]})
             return
 
-        # ASR 完成但 LLM 未触发：关闭连接，等待 /analyze
+        # ASR 完成但 LLM 尚未启动（极短暂的中间态，直接结束本次快照，等 Worker 接续）
         if task["status"] == "asr_done":
             return
 

@@ -188,6 +188,16 @@ def save_speaker_corrections(task_id: str, corrections: dict) -> None:
         conn.commit()
 
 
+def reset_llm_for_rerun(task_id: str) -> None:
+    """重新触发 LLM 分析前，清空旧结果并重置状态。"""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE tasks SET llm_chunks='', llm_done=0, error_msg=NULL, status='llm_running', updated_at=? WHERE task_id=?",
+            (_now(), task_id),
+        )
+        conn.commit()
+
+
 def append_llm_chunk(task_id: str, chunk: str) -> None:
     """追加 LLM 流式 chunk。"""
     with _connect() as conn:

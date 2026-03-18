@@ -13,7 +13,7 @@
   <!-- ── 整体布局：左侧历史 + 右侧主内容 ──── -->
   <div class="layout-root">
 
-    <!-- ── 历史任务侧边栏 ──────────────────── -->
+    <!-- ── 历史任务侧边栏 ──────────────────────── -->
     <aside class="history-sidebar" :class="{ collapsed: !historyOpen }">
       <div class="history-header">
         <span class="history-title" v-if="historyOpen">历史任务</span>
@@ -48,10 +48,10 @@
       </div>
     </aside>
 
-    <!-- ── 主内容区 ───────────────────────── -->
+    <!-- ── 主内容区 ───────────────────────────── -->
     <div class="page-wrap">
 
-      <!-- ── 页头 ───────────────────────────── -->
+      <!-- ── 页头 ───────────────────────────────── -->
       <div class="page-header">
         <div class="logo">
           <svg viewBox="0 0 24 24">
@@ -62,8 +62,8 @@
         <span class="badge">👥 说话人区分</span>
       </div>
 
-      <!-- ── 上传卡片 ──────────────────────── -->
-      <div class="top-section">
+      <!-- ── 模式 A：新建任务（上传区）────────── -->
+      <div v-if="mode === 'new'" class="top-section">
         <div class="card">
 
           <div
@@ -90,16 +90,16 @@
 
           <div class="upload-actions">
             <button class="btn-primary" :disabled="!selectedFile || loading" @click="doTranscribe">
-              <svg v-if="loading && !llmTriggered" width="15" height="15" viewBox="0 0 24 24"
+              <svg v-if="loading" width="15" height="15" viewBox="0 0 24 24"
                    fill="none" stroke="currentColor" stroke-width="2.5"
                    style="animation:spin 1s linear infinite; flex-shrink:0">
                 <circle cx="12" cy="12" r="10" stroke-opacity=".25"/>
                 <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
               </svg>
-              {{ loading && !llmTriggered ? stageName : '开始识别' }}
+              {{ loading ? stageName : '开始识别' }}
             </button>
 
-            <div v-if="(loading && !llmTriggered) || (progress > 0 && progress < 100)" class="progress-inline">
+            <div v-if="loading || (progress > 0 && progress < 100)" class="progress-inline">
               <div class="progress-header">
                 <span>{{ stageName }}</span>
                 <span>{{ progress }}%</span>
@@ -114,59 +114,27 @@
         </div>
       </div>
 
-      <!-- ── 说话人确认编辑器（ASR完成后、LLM触发前）─ -->
-      <div v-if="showSpeakerEditor" class="card spk-editor-card">
-        <div class="spk-editor-header">
-          <span class="spk-editor-title">🎙️ 确认说话人角色</span>
-          <span class="spk-editor-hint">
-            说话人由 ASR 自动区分，可能存在误差，请确认后再分析
-          </span>
-        </div>
-
-        <!-- 说话人行列表 -->
-        <div class="spk-rows">
-          <div v-for="spk in activeSpeakers" :key="spk.id" class="spk-row">
-            <!-- 说话人头像 + 名称 -->
-            <span class="spk-row-avatar" :class="`spk-${spk.id % 8}`">
-              {{ speakerInitial(spk.id) }}
-            </span>
-            <span class="spk-row-name">{{ spk.name }}</span>
-
-            <!-- 角色选择 -->
-            <select class="spk-select"
-                    :value="speakerRoles[spk.id] || 'unknown'"
-                    @change="setSpeakerRole(spk.id, $event.target.value)">
-              <option value="unknown">未知（AI 自行判断）</option>
-              <option value="interviewer">面试官</option>
-              <option value="candidate">候选人</option>
-            </select>
-
-            <!-- 合并选择（合并到其他说话人） -->
-            <select class="spk-select spk-merge-sel"
-                    :value="speakerMerges[spk.id] !== undefined ? speakerMerges[spk.id] : ''"
-                    @change="setSpeakerMerge(spk.id, $event.target.value)">
-              <option value="">不合并</option>
-              <option
-                v-for="other in activeSpeakers.filter(s => s.id !== spk.id)"
-                :key="other.id" :value="other.id"
-              >合并到 {{ other.name }}</option>
-            </select>
+      <!-- ── 模式 B：历史任务信息栏 ────────────── -->
+      <div v-else class="task-info-bar">
+        <div class="task-info-left">
+          <span class="task-info-icon">📁</span>
+          <div class="task-info-detail">
+            <span class="task-info-name">{{ historyTasks.find(t => t.task_id === currentTaskId)?.filename || '历史任务' }}</span>
+            <span class="task-info-meta">{{ formatTaskTime(historyTasks.find(t => t.task_id === currentTaskId)?.created_at) }}</span>
           </div>
         </div>
-
-        <!-- 底部操作 -->
-        <div class="spk-editor-footer">
-          <span class="spk-tip">💡 也可点击对话气泡头像单独指定某条语句的说话人</span>
-          <div class="spk-actions">
-            <button class="btn-secondary" @click="doAnalyze(true)">跳过，AI 自行判断</button>
-            <button class="btn-primary" @click="doAnalyze(false)">
-              {{ userCorrected ? '✅ 确认并开始 AI 分析' : '开始 AI 分析' }}
-            </button>
-          </div>
+        <div class="task-info-right">
+          <div v-if="errorMsg" class="error-inline">⚠️ {{ errorMsg }}</div>
+          <button class="btn-new-task" @click="startNewTask">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            新建任务
+          </button>
         </div>
       </div>
 
-      <!-- LLM 进行中横幅（触发后显示） -->
+      <!-- LLM 进行中横幅 -->
       <div v-if="llmTriggered && (llmStage || loading)" class="llm-running-banner">
         <svg v-if="loading" width="14" height="14" viewBox="0 0 24 24"
              fill="none" stroke="currentColor" stroke-width="2.5"
@@ -180,10 +148,10 @@
         </div>
       </div>
 
-      <!-- ── 结果双栏区域 ──────────────────── -->
+      <!-- ── 结果双栏区域 ──────────────────────── -->
       <div v-if="showPanels" class="result-panels">
 
-        <!-- ── 左栏：ASR 转写对话 ────────────── -->
+        <!-- ── 左栏：ASR 转写对话 ────────────────── -->
         <div class="panel">
           <div class="panel-header">
             <span class="panel-title">转写对话</span>
@@ -193,8 +161,71 @@
             </button>
           </div>
 
+          <!-- 说话人编辑工具栏（常驻，可展开/收起） -->
+          <div v-if="result && activeSpeakers.length > 0" class="spk-toolbar">
+            <div class="spk-toolbar-header" @click="speakerEditorOpen = !speakerEditorOpen">
+              <span class="spk-toolbar-icon">🎙️</span>
+              <span class="spk-toolbar-title">说话人角色设置</span>
+              <span v-if="userCorrected" class="spk-modified-badge">已修改</span>
+              <svg class="spk-toolbar-chevron" :class="{ open: speakerEditorOpen }"
+                   viewBox="0 0 24 24" width="14" height="14" fill="none"
+                   stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </div>
+
+            <!-- 展开内容 -->
+            <div v-if="speakerEditorOpen" class="spk-toolbar-body">
+              <div class="spk-rows">
+                <div v-for="spk in activeSpeakers" :key="spk.id" class="spk-row">
+                  <span class="spk-row-avatar" :class="`spk-${spk.id % 8}`">
+                    {{ speakerInitial(spk.id) }}
+                  </span>
+                  <span class="spk-row-name">{{ spk.name }}</span>
+
+                  <select class="spk-select"
+                          :value="speakerRoles[spk.id] || 'unknown'"
+                          @change="setSpeakerRole(spk.id, $event.target.value)">
+                    <option value="unknown">未知（AI 自行判断）</option>
+                    <option value="interviewer">面试官</option>
+                    <option value="candidate">候选人</option>
+                  </select>
+
+                  <select class="spk-select spk-merge-sel"
+                          :value="speakerMerges[spk.id] !== undefined ? speakerMerges[spk.id] : ''"
+                          @change="setSpeakerMerge(spk.id, $event.target.value)">
+                    <option value="">不合并</option>
+                    <option
+                      v-for="other in activeSpeakers.filter(s => s.id !== spk.id)"
+                      :key="other.id" :value="other.id"
+                    >合并到 {{ other.name }}</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- 重新分析按钮 -->
+              <div class="spk-toolbar-footer">
+                <span class="spk-tip">💡 点击气泡头像可单独指定某条语句的说话人</span>
+                <button class="btn-reanalyze" :disabled="loading" @click="doReAnalyze">
+                  <svg v-if="loading" width="13" height="13" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" stroke-width="2.5"
+                       style="animation:spin 1s linear infinite; flex-shrink:0">
+                    <circle cx="12" cy="12" r="10" stroke-opacity=".25"/>
+                    <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
+                  </svg>
+                  <svg v-else viewBox="0 0 24 24" width="13" height="13" fill="none"
+                       stroke="currentColor" stroke-width="2.2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                  </svg>
+                  {{ loading ? '分析中…' : '重新 AI 分析' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div class="panel-body">
-            <!-- 多说话人气泡（使用 effectiveSegments，反映实时更正） -->
+            <!-- 多说话人气泡 -->
             <div v-if="effectiveSegments.length > 0" class="bubbles">
               <div
                 v-for="(seg, i) in effectiveSegments" :key="i"
@@ -209,8 +240,8 @@
                 <!-- 头像：可点击弹出说话人覆盖 popup -->
                 <div
                   class="avatar"
-                  :class="{ 'avatar-editable': showSpeakerEditor }"
-                  @click.stop="showSpeakerEditor && toggleSegEdit(i)"
+                  :class="{ 'avatar-editable': result }"
+                  @click.stop="toggleSegEdit(i)"
                 >
                   {{ speakerInitial(seg.effectiveId) }}
 
@@ -229,7 +260,6 @@
                       {{ getEffectiveName(spk.id) }}
                       <span v-if="seg.effectiveId === spk.id" class="seg-edit-check">✓</span>
                     </div>
-                    <!-- 恢复原始（有单条覆盖时显示） -->
                     <div
                       v-if="segmentOverrides[i] !== undefined"
                       class="seg-edit-opt seg-edit-reset"
@@ -241,7 +271,6 @@
                 </div>
 
                 <div class="bubble-content">
-                  <!-- 显示有效说话人名称（实时响应更正） -->
                   <div class="bubble-name">
                     {{ seg.displayName }}
                     <span v-if="segmentOverrides[i] !== undefined" class="override-tag">已修改</span>
@@ -266,7 +295,7 @@
           </div>
         </div>
 
-        <!-- ── 右栏：AI 面试分析 ─────────────── -->
+        <!-- ── 右栏：AI 面试分析 ─────────────────── -->
         <div class="panel">
           <div class="panel-header">
             <div class="llm-panel-icon">🤖</div>
@@ -283,10 +312,10 @@
                  :class="{ streaming: !llmDone }"
                  v-html="renderedMarkdown">
             </div>
-            <!-- 等待触发占位 -->
+            <!-- 等待中占位 -->
             <div v-else-if="!llmTriggered" class="llm-placeholder">
               <div class="ph-icon">🤖</div>
-              <span>请在左侧确认说话人后，点击「开始 AI 分析」</span>
+              <span>识别完成后将自动开始 AI 分析</span>
             </div>
             <!-- 分析进行中占位 -->
             <div v-else class="llm-placeholder">
@@ -302,6 +331,13 @@
   </div><!-- /layout-root -->
 </div><!-- /#app -->
 
+<!-- composables（按依赖顺序加载） -->
+<script src="/static/js/composables/useFile.js"></script>
+<script src="/static/js/composables/useSpeaker.js"></script>
+<script src="/static/js/composables/useStream.js"></script>
+<script src="/static/js/composables/useHistory.js"></script>
+<script src="/static/js/composables/useTask.js"></script>
+<!-- 应用入口 -->
 <script src="/static/js/app.js"></script>
 </body>
 </html>
